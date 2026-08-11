@@ -35,7 +35,7 @@ IsRemainderExemptFromRedirection(
     _In_ PCUNICODE_STRING From)
 {
     SIZE_T RemainderLength = ObjectName->Length - From->Length;
-    PWCHAR RemainderBuffer = ObjectName->Buffer - From->Length / sizeof(WCHAR);
+    PWCHAR RemainderBuffer = ObjectName->Buffer + From->Length / sizeof(WCHAR);
     size_t i;
 
     for (i = 0; i < RTL_NUMBER_OF(Wow64FsRedirectionExemptSuffixes); i++)
