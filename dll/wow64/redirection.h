@@ -18,6 +18,40 @@ typedef struct _WOW64_PATH_REDIRECTION
     UNICODE_STRING To;
 } WOW64_PATH_REDIRECTION, *PWOW64_PATH_REDIRECTION;
 
+static const UNICODE_STRING Wow64FsRedirectionExemptSuffixes[] =
+{
+    RTL_CONSTANT_STRING(L"\\catroot"),
+    RTL_CONSTANT_STRING(L"\\catroot2"),
+    RTL_CONSTANT_STRING(L"\\driverstore"),
+    RTL_CONSTANT_STRING(L"\\drivers\\etc"),
+    RTL_CONSTANT_STRING(L"\\logfiles"),
+    RTL_CONSTANT_STRING(L"\\spool"),
+};
+
+static
+BOOLEAN
+IsRemainderExemptFromRedirection(
+    _In_ PCUNICODE_STRING ObjectName,
+    _In_ PCUNICODE_STRING From)
+{
+    SIZE_T RemainderLength = ObjectName->Length - From->Length;
+    PWCHAR RemainderBuffer = ObjectName->Buffer - From->Length / sizeof(WCHAR);
+    size_t i;
+
+    for (i = 0; i < RTL_NUMBER_OF(Wow64FsRedirectionExemptSuffixes); i++)
+    {
+        const UNICODE_STRING *Suffix = &Wow64FsRedirectionExemptSuffixes[i];
+
+        if (RemainderLength < Suffix->Length)
+            continue;
+
+        if (_wcsnicmp(RemainderBuffer, Suffix->Buffer, Suffix->Length / sizeof(WCHAR)) == 0)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
 static 
 BOOLEAN 
 RedirectPath(const WOW64_PATH_REDIRECTION* Redirection, 
@@ -49,6 +83,15 @@ RedirectPath(const WOW64_PATH_REDIRECTION* Redirection,
                                            &From,
                                            NULL);
     ASSERT(NT_SUCCESS(Status));
+
+    if (ObjectName->Length < From.Length)
+        return FALSE;
+
+    if (_wcsnicmp(ObjectName->Buffer, From.Buffer, From.Length / sizeof(WCHAR)) != 0)
+        return FALSE;
+
+    if (IsRemainderExemptFromRedirection(ObjectName, &From))
+        return FALSE;
     
     NewLength = ObjectName->Length - From.Length + To.Length;
 
@@ -57,20 +100,16 @@ RedirectPath(const WOW64_PATH_REDIRECTION* Redirection,
 
     Buffer->Buffer = (PWCHAR)(((ULONG_PTR)Buffer) + sizeof(*Buffer));
     
-    if (_wcsnicmp(ObjectName->Buffer, From.Buffer, From.Length / sizeof(WCHAR)) == 0)
-    {
-        Buffer->Length = NewLength;
-        
-        RtlCopyMemory(Buffer->Buffer, To.Buffer, To.Length);
-        
-        RtlCopyMemory(Buffer->Buffer + To.Length / sizeof(WCHAR), 
-                      ObjectName->Buffer + From.Length / sizeof(WCHAR),
-                      ObjectName->Length - From.Length);
+    Buffer->Length = NewLength;
 
-        ObjectAttributes->ObjectName = Buffer;  
-        return TRUE;
-    }
-    return FALSE;
+    RtlCopyMemory(Buffer->Buffer, To.Buffer, To.Length);
+
+    RtlCopyMemory(Buffer->Buffer + To.Length / sizeof(WCHAR),
+                  ObjectName->Buffer + From.Length / sizeof(WCHAR),
+                  ObjectName->Length - From.Length);
+
+    ObjectAttributes->ObjectName = Buffer;
+    return TRUE;
 }
 
 static 
